@@ -12,6 +12,8 @@
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+**[🌐 홈페이지](https://pp.andrew-ai.app/)**
+
 [English](README.md) · **한국어**
 
 <img src="samples/power-up.gif" alt="PerfectPixel로 생성한 픽셀아트 파워업 애니메이션" width="280" />
@@ -191,9 +193,6 @@ hash**(9×8 grayscale, 구조 민감·색 불변 — histogram이 못 잡는 sil
 | identity 일관성 | 운에 맡김 | color histogram + dHash structural 2축 + 재생성 loop |
 | 품질 측정 | 사람이 눈으로 | 0~100 multi-axis score + headless regression 추적 |
 | 압축 강건성 | JPEG noise에 취약 | luma 무시 색차공간, 4:2:0 subsampling에 본질 강건 |
-
-> 코드 레퍼런스를 포함한 전체 심화 분석은
-> [`기술분석-스프라이트생성-알고리즘.md`](기술분석-스프라이트생성-알고리즘.md)에 있습니다.
 
 ---
 

@@ -18,6 +18,7 @@ frontend/package.json.md5
 
 # 홍보용 홈페이지 (정적 마케팅 사이트)
 /home/
+home.sh
 
 # 샘플 산출물
 /sample/
