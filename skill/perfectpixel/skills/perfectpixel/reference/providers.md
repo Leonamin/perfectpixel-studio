@@ -1,6 +1,6 @@
 # PerfectPixel 프로바이더 / 모델 / 설정
 
-`ppgen`은 4개 이미지 생성 백엔드를 지원한다. 활성 프로바이더와 키는 다음 순서로 해석된다.
+`ppgen`은 5개 이미지 생성 백엔드를 지원한다. 활성 프로바이더와 키는 다음 순서로 해석된다.
 
 1. 설치형 앱 설정 파일 `~/.config/perfectpixel/config.json` (있으면 최우선)
 2. 작업 디렉토리 또는 실행 파일 옆의 `.env` / `.env.local`
@@ -14,9 +14,17 @@
 | 프로바이더 | `-provider` 값 | API 키 환경변수 | 기본 모델 | 대체 모델 |
 |---|---|---|---|---|
 | Gemini (Google AI Studio) | `gemini` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `gemini-3-pro-image` | `gemini-3-pro-image-preview`, `gemini-2.5-flash-image` |
+| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-image-2` | `gpt-image-1.5`, `gpt-image-1` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `google/gemini-3-pro-image-preview` | `google/gemini-2.5-flash-image` |
 | fal.ai | `fal` | `FAL_KEY` / `FAL_API_KEY` | `fal-ai/nano-banana-pro` | `fal-ai/nano-banana`, `fal-ai/flux-pro/v1.1-ultra` |
 | BytePlus (ARK) | `byteplus` | `BYTEPLUS_API_KEY` / `ARK_API_KEY` | `seedream-4-0-250828` | `seedream-3-0-t2i-250415` |
+
+## 재현성 옵션
+
+- `-base FILE`: 기존 `base.png`를 참조 이미지로 재사용해 런 간 캐릭터 정체성/복장/팔레트를 고정한다.
+  캐릭터별로 `-baseonly`를 한 번 실행해 base를 확정하고 이후 상태/방향 생성에 넘기는 방식이 가장 안정적이다.
+- `-seed N`: 지원 프로바이더에서 결정적 샘플링을 요청한다. 현재 `gemini`, `openrouter`, `fal`에 전달된다.
+  `openai`, `byteplus`에서는 경고 후 무시된다.
 
 ## .env 예시
 
@@ -24,6 +32,7 @@
 # 사용할 프로바이더의 키만 채우면 된다.
 GEMINI_API_KEY=
 OPENROUTER_API_KEY=
+OPENAI_API_KEY=
 FAL_KEY=
 BYTEPLUS_API_KEY=
 ```

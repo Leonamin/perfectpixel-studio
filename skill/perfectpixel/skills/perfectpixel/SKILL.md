@@ -67,6 +67,10 @@ echo "$PPGEN"   # 이후 모든 ppgen 호출에 이 경로를 사용
   - "전부 다" → `-all` (100여 개, 시간·비용 큼 → 먼저 사용자에게 규모를 알린다).
 - 8방향 세트 요청 → `-dirset walk` 처럼 한 동작 지정 (5방향 AI 생성 + 3방향 미러링).
 - 출력 폴더 → `-out ./output-dir` (기본 `./perfectpixel-out`).
+- 기존 정체성 재사용 → `-base ./char-base/base.png`. 먼저 `-baseonly -out ./char-base`로
+  캐릭터별 base를 확정하고, 이후 모든 상태/방향 생성에 이 base를 넘기는 흐름을 우선 권장한다.
+- 결정적 샘플링 요청 → `-seed 42`. 현재 `fal`, `gemini`, `openrouter`에 전달되며,
+  미지원 프로바이더에서는 경고 후 무시된다. 정체성 고정의 1차 수단은 항상 `-base`다.
 
 ## 3. 실행
 
@@ -78,12 +82,20 @@ echo "$PPGEN"   # 이후 모든 ppgen 호출에 이 경로를 사용
   -desc "a small knight with silver armor and a blue plume" \
   -style pixel \
   -states "idle,walk,run,attack" \
+  -seed 42 \
   -out ./knight-sprites \
   -json
 ```
 
 비용/속도가 걱정되면 먼저 1개 상태로 시범 실행(`-states idle`)해 품질을 확인하고
 사용자 승인 후 전체를 돌린다.
+
+런 간 같은 캐릭터를 유지해야 하면 다음처럼 base를 먼저 고정한다.
+
+```bash
+"$PPGEN" -desc "a small knight with silver armor and a blue plume" -baseonly -out ./knight-base -json
+"$PPGEN" -base ./knight-base/base.png -dirset walk -states "" -out ./knight-walk -json
+```
 
 ## 4. 결과 해석 및 보고
 

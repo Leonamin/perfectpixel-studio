@@ -34,9 +34,11 @@ type options struct {
 	all         bool
 	dirset      string
 	out         string
+	base        string
 	provider    string
 	key         string
 	model       string
+	seed        int
 	attempts    int
 	dirs        string
 	timeout     time.Duration
@@ -59,9 +61,11 @@ func main() {
 	flag.StringVar(&opt.dirset, "dirset", "", "8방향 세트를 추가 생성할 상태 이름 (선택)")
 	flag.StringVar(&opt.dirs, "dirs", "", "dirset 생성 방향 필터 CSV (예: east 또는 south,east; 비우면 전체)")
 	flag.StringVar(&opt.out, "out", "./perfectpixel-out", "출력 디렉토리")
-	flag.StringVar(&opt.provider, "provider", "", "프로바이더 강제 지정 (gemini|openrouter|fal|byteplus)")
+	flag.StringVar(&opt.base, "base", "", "기존 base.png 파일을 재사용해 베이스 생성을 건너뜀")
+	flag.StringVar(&opt.provider, "provider", "", "프로바이더 강제 지정 (gemini|openai|openrouter|fal|byteplus)")
 	flag.StringVar(&opt.key, "key", "", "API 키 강제 지정 (설정/환경변수보다 우선)")
 	flag.StringVar(&opt.model, "model", "", "모델 강제 지정")
+	flag.IntVar(&opt.seed, "seed", -1, "지원 프로바이더에서 결정적 샘플링 seed 지정 (-1=미지정)")
 	flag.IntVar(&opt.attempts, "attempts", 3, "상태별 품질 보정 재생성 최대 시도 횟수")
 	flag.DurationVar(&opt.timeout, "timeout", 30*time.Minute, "전체 타임아웃")
 	flag.BoolVar(&opt.jsonOut, "json", false, "사람이 읽는 로그 대신 결과 요약 JSON만 stdout에 출력")

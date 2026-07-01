@@ -74,6 +74,7 @@ type inlineData struct {
 type genConfig struct {
 	ResponseModalities []string     `json:"responseModalities,omitempty"`
 	ImageConfig        *imageConfig `json:"imageConfig,omitempty"`
+	Seed               *int         `json:"seed,omitempty"`
 }
 
 type imageConfig struct {
@@ -99,11 +100,12 @@ type apiError struct {
 
 // GenerateImage는 프롬프트와 참조 이미지(PNG 바이트)로 이미지를 생성합니다.
 // aspectRatio는 "1:1", "16:9", "21:9" 등을 지원하며 빈 문자열이면 생략됩니다.
-func (c *Client) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string) ([]byte, error) {
+func (c *Client) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string, opts ...GenOpts) ([]byte, error) {
 	if c.APIKey == "" {
 		return nil, errors.New("API 키가 설정되지 않았습니다. 설정에서 Gemini API 키를 입력해 주세요")
 	}
 
+	genOpts := mergeGenOpts(opts)
 	parts := make([]genPart, 0, len(refImages)+1)
 	for _, img := range refImages {
 		parts = append(parts, genPart{
@@ -119,7 +121,7 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, refImages [][
 	// 프레임당 픽셀 수가 늘어나 추출 품질이 크게 향상됩니다.
 	// 폴백 모델은 imageSize를 지원하지 않으므로 모델에 따라 본문을 다시 만듭니다.
 	buildBody := func(model string) ([]byte, error) {
-		cfg := &genConfig{ResponseModalities: []string{"TEXT", "IMAGE"}}
+		cfg := &genConfig{ResponseModalities: []string{"TEXT", "IMAGE"}, Seed: genOpts.Seed}
 		if aspectRatio != "" {
 			ic := &imageConfig{AspectRatio: aspectRatio}
 			if strings.HasPrefix(model, "gemini-3-pro") && aspectRatio != "1:1" {
