@@ -113,10 +113,16 @@ func dropMinorRuns(p []float64, runs []colSpan, frac float64) []colSpan {
 	return out
 }
 
+const valleyCutPeakFrac = 0.35
+
 // dpNCut은 [x0,x1) 구간을 정확히 n개 세그먼트로 나누는 n-1개 컷 컬럼을 찾습니다.
 // 비용 = Σ P[cut] (질량이 적은 곳을 자르는 게 저렴) + 폭 정규화(이상폭에서 벗어날수록 벌점).
 // 닿아 있는 포즈를 강제로 expected개로 분리할 때 사용합니다.
 func dpNCut(p []float64, x0, x1, n int) []int {
+	return dpNCutFiltered(p, x0, x1, n, nil)
+}
+
+func dpNCutFiltered(p []float64, x0, x1, n int, accept func(int) bool) []int {
 	if n <= 1 || x1-x0 < n {
 		return nil
 	}
@@ -145,6 +151,9 @@ func dpNCut(p []float64, x0, x1, n int) []int {
 	for k := 1; k <= cuts; k++ {
 		lo := x0 + (k-1)*minW
 		for x := x0 + k*minW; x <= x1-(cuts-k+1)*minW; x++ {
+			if accept != nil && !accept(x) {
+				continue
+			}
 			best := 1e18
 			bestPrev := -1
 			for xp := lo; xp <= x-minW; xp++ {
@@ -183,9 +192,134 @@ func dpNCut(p []float64, x0, x1, n int) []int {
 	return out
 }
 
-// segmentStrip은 스트립을 expected개 컬럼 세그먼트로 나누고 감지된 자연 포즈 수를
-// 함께 반환합니다. 자연 포즈 수가 expected와 같으면 골(gutter) 중심에서 깔끔히 자르고,
-// 아니면 DP로 expected개를 강제 분할합니다.
+// majorAlphaComponentSpans는 큰 연결요소의 x 범위를 반환합니다.
+// 포즈가 서로 분리되어 있으면 projection valley보다 더 직접적인 근거가 됩니다.
+func majorAlphaComponentSpans(img *image.NRGBA, frac float64) []colSpan {
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	if w == 0 || h == 0 {
+		return nil
+	}
+	visited := make([]bool, w*h)
+	type component struct {
+		span colSpan
+		area int
+	}
+	comps := []component{}
+	maxArea := 0
+	stack := make([]int, 0, 256)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			p := y*w + x
+			if visited[p] || img.Pix[p*4+3] <= alphaThreshold {
+				continue
+			}
+			visited[p] = true
+			stack = append(stack[:0], p)
+			minX, maxX, area := x, x, 0
+			for len(stack) > 0 {
+				q := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				area++
+				qx, qy := q%w, q/w
+				if qx < minX {
+					minX = qx
+				}
+				if qx > maxX {
+					maxX = qx
+				}
+				push := func(nx, ny int) {
+					if nx < 0 || ny < 0 || nx >= w || ny >= h {
+						return
+					}
+					np := ny*w + nx
+					if visited[np] || img.Pix[np*4+3] <= alphaThreshold {
+						return
+					}
+					visited[np] = true
+					stack = append(stack, np)
+				}
+				for dy := -1; dy <= 1; dy++ {
+					for dx := -1; dx <= 1; dx++ {
+						if dx == 0 && dy == 0 {
+							continue
+						}
+						push(qx+dx, qy+dy)
+					}
+				}
+			}
+			if area > maxArea {
+				maxArea = area
+			}
+			comps = append(comps, component{span: colSpan{minX, maxX + 1}, area: area})
+		}
+	}
+	if maxArea == 0 {
+		return nil
+	}
+	minArea := int(float64(maxArea) * frac)
+	if minArea < 48 {
+		minArea = 48
+	}
+	out := []colSpan{}
+	for _, c := range comps {
+		if c.area >= minArea && c.span.end-c.span.start >= 4 {
+			out = append(out, c.span)
+		}
+	}
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1].start > out[j].start; j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out
+}
+
+func valleyCutOK(p []float64, s, e, x int) bool {
+	if x <= s || x >= e || x < 0 || x >= len(p) {
+		return false
+	}
+	leftPeak, rightPeak := 0.0, 0.0
+	for i := s; i < x && i < len(p); i++ {
+		if i >= 0 && p[i] > leftPeak {
+			leftPeak = p[i]
+		}
+	}
+	for i := x; i < e && i < len(p); i++ {
+		if i >= 0 && p[i] > rightPeak {
+			rightPeak = p[i]
+		}
+	}
+	peak := minf(leftPeak, rightPeak)
+	if peak <= 0 {
+		return false
+	}
+	return p[x] <= peak*valleyCutPeakFrac
+}
+
+func splitRangeWithValleyCuts(p []float64, s, e, n int) ([]colSpan, bool) {
+	if n <= 1 || e-s < n {
+		return []colSpan{{s, e}}, n == 1
+	}
+	cuts := dpNCutFiltered(p, s, e, n, func(x int) bool {
+		return valleyCutOK(p, s, e, x)
+	})
+	if len(cuts) != n-1 {
+		return nil, false
+	}
+	out := make([]colSpan, 0, n)
+	prev := s
+	for _, c := range cuts {
+		out = append(out, colSpan{prev, c})
+		prev = c
+	}
+	out = append(out, colSpan{prev, e})
+	return out, true
+}
+
+// segmentStrip은 스트립을 컬럼 세그먼트로 나누고 감지된 자연 포즈 수를 함께 반환합니다.
+// 분리된 blob 수가 expected와 같으면 그 bbox를 직접 쓰고, 닿아 있는 포즈는 깊은
+// projection valley가 있을 때만 DP 컷으로 나눕니다. 자연 포즈가 expected보다 적고
+// 이미 여러 run으로 분리되어 있으면 누락으로 보고 강제 과분할하지 않습니다.
 func segmentStrip(img *image.NRGBA, expected int) (segs []colSpan, natural int) {
 	w := img.Rect.Dx()
 	if w == 0 || expected < 1 {
@@ -200,6 +334,9 @@ func segmentStrip(img *image.NRGBA, expected int) (segs []colSpan, natural int) 
 	mx := maxOf(p)
 	if mx <= 0 {
 		return nil, 0
+	}
+	if comps := majorAlphaComponentSpans(img, 0.20); len(comps) == expected {
+		return comps, expected
 	}
 	eps := 0.045 * mx
 	peakMin := 0.18 * mx
@@ -247,11 +384,14 @@ func segmentStrip(img *image.NRGBA, expected int) (segs []colSpan, natural int) 
 		}
 	}
 
-	// 강제 복구: 감지된 수가 기대와 다르고, 전체 콘텐츠 폭이 기대 개수의
-	// 최소 폭을 감당할 수 있다면 전체 strip을 expected개로 균등/DP 분할.
-	// AI가 포즈를 마젠타 gutter 없이 완전히 붙여 그리는 경우를 방어한다.
-	if len(segs) != expected && widthTotal/float64(expected) >= 16 && w/expected >= 16 {
-		segs = splitRange(p, 0, w, expected)
+	// 강제 복구: 한 덩어리로 붙은 스트립이거나 과검출된 스트립만 expected개로
+	// 재분할한다. 여러 run이 이미 expected보다 적게 보이면 포즈 누락으로 보고
+	// 몸통 내부를 잘라 수량을 맞추지 않는다.
+	canForce := len(runs) == 1 || len(segs) > expected
+	if len(segs) != expected && canForce && widthTotal/float64(expected) >= 16 && w/expected >= 16 {
+		if forced, ok := splitRangeWithValleyCuts(p, 0, w, expected); ok {
+			segs = forced
+		}
 	}
 
 	// 방출 프레임 수 = 추정 포즈 수 (DP로 expected를 강제하지 않고 정직하게 보고).

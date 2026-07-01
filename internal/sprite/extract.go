@@ -239,6 +239,9 @@ func slotGuidedSegments(strip *image.NRGBA, expected int) []colSpan {
 		best := lo
 		bestCost := 1e18
 		for x := lo; x <= hi && x < len(p); x++ {
+			if !valleyCutOK(p, 0, w, x) {
+				continue
+			}
 			distPenalty := 0.0
 			if radius > 0 && mx > 0 {
 				distPenalty = mx * 0.08 * float64(absInt(x-center)) / float64(radius)
@@ -248,6 +251,9 @@ func slotGuidedSegments(strip *image.NRGBA, expected int) []colSpan {
 				bestCost = cost
 				best = x
 			}
+		}
+		if bestCost >= 1e17 {
+			return nil
 		}
 		if best <= last {
 			best = last + minW
