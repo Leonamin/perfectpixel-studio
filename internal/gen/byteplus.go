@@ -60,7 +60,7 @@ type bpResponse struct {
 }
 
 // GenerateImage는 BytePlus Seedream으로 이미지를 생성합니다.
-func (c *BytePlus) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string) ([]byte, error) {
+func (c *BytePlus) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string, opts ...GenOpts) ([]byte, error) {
 	if c.APIKey == "" {
 		return nil, errors.New("BytePlus API 키가 설정되지 않았습니다. 설정에서 입력해 주세요")
 	}

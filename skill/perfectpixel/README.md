@@ -74,12 +74,18 @@ skills/perfectpixel/bin/ppgen \
 | `-percat N` | 카테고리당 N개 자동 선택 |
 | `-all` | 전체 프리셋 (100여 개, 비용 큼) |
 | `-dirset KEY` | 한 상태의 8방향 세트 추가 생성 |
+| `-base FILE` | 기존 `base.png`를 재사용해 같은 캐릭터 정체성으로 상태/방향 재생성 |
 | `-out DIR` | 출력 디렉토리 (기본 `./perfectpixel-out`) |
 | `-provider` / `-key` / `-model` | 프로바이더/키/모델 강제 지정 |
+| `-seed N` | 지원 프로바이더에서 결정적 샘플링 요청 (`fal`, `gemini`, `openrouter`) |
 | `-attempts N` | 상태별 품질 보정 재시도 (기본 3) |
 | `-timeout` | 전체 타임아웃 (기본 30m) |
 | `-json` | 결과 요약 JSON만 stdout 출력 (스크립트/스킬용) |
 | `-dump` | 프리셋·방향·스타일·프로바이더 카탈로그 출력 후 종료 |
+
+캐릭터 정체성을 런 간 고정하려면 먼저 `-baseonly -out ./char-base`로 `base.png`를 확정한 뒤,
+이후 생성은 `-base ./char-base/base.png`를 함께 넘긴다. `-seed`는 같은 요청의 재현성을 돕지만,
+복장·팔레트 고정의 1차 수단은 실제 이미지 참조인 `-base`다.
 
 ## 산출물
 

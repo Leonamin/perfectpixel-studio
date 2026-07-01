@@ -54,7 +54,7 @@ before/after comparisons below, all produced by the *real* pipeline code on *rea
 - **Real pixelization**: shared-palette quantization + pixel-grid snapping for authentic dot art.
 - **Engine-friendly export**: sprite sheet + `manifest.json` + Aseprite-compatible JSON +
   per-state GIF/APNG + individual frame PNGs, all in one pass.
-- **Multi-provider**: choose Gemini, OpenRouter, fal.ai, or BytePlus as the backend.
+- **Multi-provider**: choose Gemini, OpenAI, OpenRouter, fal.ai, or BytePlus as the backend.
 - **Sessions & gallery**: work state is persisted to disk and results are auto-archived.
 
 ## Sample Output
@@ -215,6 +215,7 @@ via environment variables or a `.env` file.
 | Provider | Default model | API key env var |
 |----------|---------------|-----------------|
 | **Gemini** (default) | `gemini-3-pro-image` (Nano Banana Pro) | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
+| **OpenAI** | `gpt-image-2` | `OPENAI_API_KEY` |
 | **OpenRouter** | `google/gemini-3-pro-image-preview` | `OPENROUTER_API_KEY` |
 | **fal.ai** | `fal-ai/nano-banana-pro` | `FAL_KEY` / `FAL_API_KEY` |
 | **BytePlus** | `seedream-4-0-250828` (Seedream 4.0) | `BYTEPLUS_API_KEY` / `ARK_API_KEY` |
@@ -265,6 +266,20 @@ cp .env.example .env   # fill in only the provider keys you use
    serves as the motion reference for other directions.
 4. **Review & regenerate** — check via frame preview and animation playback, add feedback, regen.
 5. **Export** — pick a folder and save engine-ready output in one pass.
+
+## Headless generation
+
+`cmd/ppgen` runs the same pipeline from the command line. To keep a character's identity stable
+across runs, lock the base image once and reuse it for later states or direction sets:
+
+```bash
+go run ./cmd/ppgen -desc "a small knight with silver armor" -baseonly -out ./knight-base
+go run ./cmd/ppgen -base ./knight-base/base.png -dirset walk -states "" -out ./knight-walk
+```
+
+`-seed N` requests deterministic sampling where supported (`fal`, `gemini`, `openrouter`), but
+`-base` is the primary identity lock because every later generation uses the actual image as a
+reference.
 
 ## Export format
 

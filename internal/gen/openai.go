@@ -67,7 +67,7 @@ type openAIImageResponse struct {
 }
 
 // GenerateImage는 OpenAI GPT Image 모델로 이미지를 생성하거나 참조 이미지를 편집합니다.
-func (c *OpenAI) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string) ([]byte, error) {
+func (c *OpenAI) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string, opts ...GenOpts) ([]byte, error) {
 	if c.APIKey == "" {
 		return nil, errors.New("OpenAI API 키가 설정되지 않았습니다. 설정에서 입력해 주세요")
 	}

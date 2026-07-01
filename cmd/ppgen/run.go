@@ -16,6 +16,9 @@ import (
 
 // runGen은 전체 파이프라인을 실행합니다: 베이스 생성 → 상태별 생성 → 번들 내보내기 → 요약 출력.
 func runGen(opt options) error {
+	if opt.seed < -1 {
+		return fmt.Errorf("-seed는 -1 또는 0 이상의 정수여야 합니다")
+	}
 	p, provider, model, err := resolveProvider(opt)
 	if err != nil {
 		return err
@@ -38,6 +41,10 @@ func runGen(opt options) error {
 	}
 	logf("프로바이더: %s · 모델: %s · 스타일: %s · 상태 %d개 · 출력: %s\n",
 		provider, model, opt.style, len(presets), opt.out)
+	warnSeedSupport(provider, opt)
+	if opt.seed >= 0 && seedSupported(provider) {
+		logf("seed: %d\n", opt.seed)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), opt.timeout)
 	defer cancel()
@@ -45,13 +52,29 @@ func runGen(opt options) error {
 	style := sprite.ResolveStyle(opt.style, "")
 
 	// 1) 베이스 캐릭터
-	logf("베이스 캐릭터 생성 중... ")
 	t0 := time.Now()
-	baseClean, baseBytes, err := generateBase(ctx, p, opt.desc, opt.style, style)
-	if err != nil {
-		return fmt.Errorf("베이스 생성 실패: %w", err)
+	var baseClean *image.NRGBA
+	var baseBytes []byte
+	if strings.TrimSpace(opt.base) != "" {
+		logf("베이스 캐릭터 로드 중... ")
+		cleaned := false
+		baseClean, baseBytes, cleaned, err = loadBase(opt.base, opt.style)
+		if err != nil {
+			return fmt.Errorf("베이스 로드 실패: %w", err)
+		}
+		if cleaned && !opt.quiet {
+			fmt.Fprintf(os.Stderr, "경고: -base 이미지 배경이 투명하지 않아 배경 제거 후 사용합니다\n")
+		}
+	} else {
+		logf("베이스 캐릭터 생성 중... ")
+		baseClean, baseBytes, err = generateBase(ctx, p, opt.desc, opt.style, style, genOptions(opt))
+		if err != nil {
+			return fmt.Errorf("베이스 생성 실패: %w", err)
+		}
 	}
-	savePNG(filepath.Join(opt.out, "base.png"), baseClean)
+	if err := os.WriteFile(filepath.Join(opt.out, "base.png"), baseBytes, 0o644); err != nil {
+		return fmt.Errorf("base.png 저장 실패: %w", err)
+	}
 	logf("완료 (%.0fs)\n", time.Since(t0).Seconds())
 
 	// baseonly: 상태/번들 생성을 건너뛰고 base.png만 남긴다.
@@ -114,6 +137,30 @@ func runGen(opt options) error {
 	logf("  - sprite-sheet.png / manifest.json / sprite-sheet.json (Aseprite)\n")
 	logf("  - frames/<state>/frame-NN.png · gif/<state>.gif · apng/<state>.png\n")
 	return nil
+}
+
+func genOptions(opt options) gen.GenOpts {
+	if opt.seed < 0 {
+		return gen.GenOpts{}
+	}
+	seed := opt.seed
+	return gen.GenOpts{Seed: &seed}
+}
+
+func seedSupported(provider string) bool {
+	switch provider {
+	case gen.ProviderGemini, gen.ProviderOpenRouter, gen.ProviderFal:
+		return true
+	default:
+		return false
+	}
+}
+
+func warnSeedSupport(provider string, opt options) {
+	if opt.seed < 0 || opt.quiet || seedSupported(provider) {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "경고: -seed는 현재 %s 프로바이더에서 지원되지 않아 무시됩니다\n", gen.ProviderLabel(provider))
 }
 
 // genDirectionSet은 5방향 AI 생성 + 3방향 미러링으로 8방향 세트를 만듭니다.

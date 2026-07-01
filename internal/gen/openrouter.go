@@ -48,6 +48,7 @@ type orRequest struct {
 	Model      string      `json:"model"`
 	Messages   []orMessage `json:"messages"`
 	Modalities []string    `json:"modalities"`
+	Seed       *int        `json:"seed,omitempty"`
 }
 
 type orMessage struct {
@@ -69,11 +70,12 @@ type orResponse struct {
 }
 
 // GenerateImage는 OpenRouter chat completions API로 이미지를 생성합니다.
-func (c *OpenRouter) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string) ([]byte, error) {
+func (c *OpenRouter) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string, opts ...GenOpts) ([]byte, error) {
 	if c.APIKey == "" {
 		return nil, errors.New("OpenRouter API 키가 설정되지 않았습니다. 설정에서 입력해 주세요")
 	}
 
+	genOpts := mergeGenOpts(opts)
 	// OpenRouter는 종횡비 파라미터가 없어 프롬프트로 유도합니다.
 	fullPrompt := prompt + "\n\n" + aspectHint(aspectRatio)
 
@@ -91,6 +93,7 @@ func (c *OpenRouter) GenerateImage(ctx context.Context, prompt string, refImages
 		Model:      c.Model,
 		Messages:   []orMessage{{Role: "user", Content: parts}},
 		Modalities: []string{"image", "text"},
+		Seed:       genOpts.Seed,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("요청 직렬화 실패: %w", err)

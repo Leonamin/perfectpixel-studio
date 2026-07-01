@@ -73,8 +73,8 @@ func savePNG(path string, img image.Image) {
 }
 
 // generateBase는 베이스 캐릭터를 생성하고 배경 제거 + 픽셀화한 정리본과 PNG 바이트를 반환합니다.
-func generateBase(ctx context.Context, p gen.Provider, desc, styleKey, style string) (*image.NRGBA, []byte, error) {
-	raw, err := p.GenerateImage(ctx, sprite.BuildCharacterPrompt(desc, style), nil, "1:1")
+func generateBase(ctx context.Context, p gen.Provider, desc, styleKey, style string, opts gen.GenOpts) (*image.NRGBA, []byte, error) {
+	raw, err := p.GenerateImage(ctx, sprite.BuildCharacterPrompt(desc, style), nil, "1:1", opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,6 +89,57 @@ func generateBase(ctx context.Context, p gen.Provider, desc, styleKey, style str
 		clean = single[0]
 	}
 	return clean, pngBytes(clean), nil
+}
+
+// loadBase는 사용자가 지정한 기존 base.png를 검증하고 필요하면 투명 배경으로 정리합니다.
+func loadBase(path, styleKey string) (*image.NRGBA, []byte, bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("PNG 디코드 실패: %w", err)
+	}
+	base := sprite.ToNRGBA(img)
+	if baseHasTransparentBackground(base) {
+		return base, raw, false, nil
+	}
+	clean := sprite.RemoveBackground(base)
+	if palette := sprite.PaletteSizeForStyle(styleKey); palette > 0 {
+		single := []*image.NRGBA{clean}
+		sprite.PixelPostProcess(single, palette)
+		clean = single[0]
+	}
+	return clean, pngBytes(clean), true, nil
+}
+
+func baseHasTransparentBackground(img *image.NRGBA) bool {
+	b := img.Bounds()
+	if b.Empty() {
+		return false
+	}
+	var border, transparentBorder, transparentAll int
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			a := img.NRGBAAt(x, y).A
+			if a < 16 {
+				transparentAll++
+			}
+			if x == b.Min.X || x == b.Max.X-1 || y == b.Min.Y || y == b.Max.Y-1 {
+				border++
+				if a < 16 {
+					transparentBorder++
+				}
+			}
+		}
+	}
+	if border == 0 {
+		return false
+	}
+	borderRatio := float64(transparentBorder) / float64(border)
+	allRatio := float64(transparentAll) / float64(b.Dx()*b.Dy())
+	return borderRatio >= 0.80 && allRatio >= 0.01
 }
 
 // genState는 앱과 동일한 자동 재시도 품질 보정 루프로 한 상태를 생성합니다.
@@ -113,7 +164,7 @@ func genState(ctx context.Context, p gen.Provider, opt options, style string,
 		if len(refs) > 1 {
 			prompt += "\nMotion reference: the second attached image is the FRONT-view animation strip of this same character performing this exact action. Reproduce the same motion timing and pose phases frame by frame, but viewed from the required facing direction above.\n"
 		}
-		raw, err := p.GenerateImage(ctx, prompt, refs, aspect)
+		raw, err := p.GenerateImage(ctx, prompt, refs, aspect, genOptions(opt))
 		if err != nil {
 			best.Errors = append(best.Errors, err.Error())
 			return best

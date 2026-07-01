@@ -64,9 +64,25 @@ func ModelsFor(provider string) []string {
 // Provider는 이미지 생성 백엔드 공통 인터페이스입니다.
 type Provider interface {
 	// GenerateImage는 프롬프트와 참조 이미지(PNG)로 이미지를 생성합니다.
-	GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string) ([]byte, error)
+	GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string, opts ...GenOpts) ([]byte, error)
 	// ValidateKey는 API 키 유효성을 확인합니다.
 	ValidateKey(ctx context.Context) error
+}
+
+// GenOpts는 이미지 생성 호출별 선택 옵션입니다.
+type GenOpts struct {
+	// Seed는 지원 프로바이더에서 결정적 샘플링을 요청합니다.
+	Seed *int
+}
+
+func mergeGenOpts(opts []GenOpts) GenOpts {
+	var out GenOpts
+	for _, opt := range opts {
+		if opt.Seed != nil {
+			out.Seed = opt.Seed
+		}
+	}
+	return out
 }
 
 // DefaultModelFor는 프로바이더별 기본 모델을 반환합니다.

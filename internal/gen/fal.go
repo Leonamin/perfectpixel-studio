@@ -39,6 +39,7 @@ type falRequest struct {
 	OutputFormat string   `json:"output_format"`
 	AspectRatio  string   `json:"aspect_ratio,omitempty"`
 	SyncMode     bool     `json:"sync_mode"`
+	Seed         *int     `json:"seed,omitempty"`
 }
 
 type falResponse struct {
@@ -58,11 +59,12 @@ func (c *Fal) endpoint(hasRefs bool) string {
 }
 
 // GenerateImage는 fal.ai로 이미지를 생성합니다.
-func (c *Fal) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string) ([]byte, error) {
+func (c *Fal) GenerateImage(ctx context.Context, prompt string, refImages [][]byte, aspectRatio string, opts ...GenOpts) ([]byte, error) {
 	if c.APIKey == "" {
 		return nil, errors.New("fal.ai API 키가 설정되지 않았습니다. 설정에서 입력해 주세요")
 	}
 
+	genOpts := mergeGenOpts(opts)
 	reqData := falRequest{
 		// 종횡비 파라미터가 무시되는 경우를 대비해 프롬프트 힌트도 함께 전달
 		Prompt:       prompt + "\n\n" + aspectHint(aspectRatio),
@@ -70,6 +72,7 @@ func (c *Fal) GenerateImage(ctx context.Context, prompt string, refImages [][]by
 		OutputFormat: "png",
 		AspectRatio:  aspectRatio,
 		SyncMode:     false,
+		Seed:         genOpts.Seed,
 	}
 	for _, img := range refImages {
 		reqData.ImageURLs = append(reqData.ImageURLs,
