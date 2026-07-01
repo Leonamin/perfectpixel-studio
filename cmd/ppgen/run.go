@@ -129,9 +129,29 @@ func genDirectionSet(ctx context.Context, p gen.Provider, opt options, style, ke
 	var rows []resultRow
 	frameByDir := map[string][]*image.NRGBA{}
 	var southRef []byte
+	requested, hasDirFilter := parseDirFilter(opt.dirs, logf)
+	// 미러 방향: west<-east, south-west<-south-east, north-west<-north-east
+	mirror := map[string]string{"west": "east", "south-west": "south-east", "north-west": "north-east"}
+	wantsOutput := func(dir string) bool {
+		return !hasDirFilter || requested[dir]
+	}
+	needsAISource := func(dir string) bool {
+		if wantsOutput(dir) {
+			return true
+		}
+		for dst, src := range mirror {
+			if src == dir && requested[dst] {
+				return true
+			}
+		}
+		return false
+	}
 
-	aiDirs := []string{"south", "east", "north", "south-east", "north-east"}
+	aiDirs := sprite.GeneratedDirections
 	for _, d := range aiDirs {
+		if hasDirFilter && !needsAISource(d) {
+			continue
+		}
 		spec := sprite.StateSpec{Name: key + "-" + d, Frames: pre.Frames, FPS: pre.FPS, Loop: pre.Loop, Action: pre.Action, Facing: d}
 		refs := [][]byte{baseBytes}
 		if d != "south" && southRef != nil {
@@ -144,19 +164,24 @@ func genDirectionSet(ctx context.Context, p gen.Provider, opt options, style, ke
 		logf("  [%s] 생성 중... ", d)
 		res := genState(ctx, p, opt, style, spec, refs, bN)
 		logf("%d/%d 점수%d\n", res.Found, res.Expected, res.Score)
-		rows = append(rows, res.row())
 		if len(res.frames) > 0 {
-			states = append(states, sprite.StateFrames{Spec: spec, Frames: res.frames})
 			frameByDir[d] = res.frames
 			if d == "south" && res.rawClean != nil {
 				southRef = pngBytes(res.rawClean)
 			}
+			if wantsOutput(d) {
+				states = append(states, sprite.StateFrames{Spec: spec, Frames: res.frames})
+			}
+		}
+		if wantsOutput(d) {
+			rows = append(rows, res.row())
 		}
 	}
 
-	// 미러 방향: west<-east, south-west<-south-east, north-west<-north-east
-	mirror := map[string]string{"west": "east", "south-west": "south-east", "north-west": "north-east"}
 	for dst, src := range mirror {
+		if !wantsOutput(dst) {
+			continue
+		}
 		srcFrames := frameByDir[src]
 		if len(srcFrames) == 0 {
 			continue
@@ -171,4 +196,31 @@ func genDirectionSet(ctx context.Context, p gen.Provider, opt options, style, ke
 		logf("  [%s] 미러링(%s) %d프레임\n", dst, src, len(mirrored))
 	}
 	return states, rows
+}
+
+func parseDirFilter(raw string, logf func(string, ...any)) (map[string]bool, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, false
+	}
+	valid := map[string]bool{}
+	for _, d := range sprite.Directions {
+		valid[d.Key] = true
+	}
+	out := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		key := strings.TrimSpace(part)
+		if key == "" {
+			continue
+		}
+		if !valid[key] {
+			logf("  방향 필터: 알 수 없는 방향 %q 건너뜀\n", key)
+			continue
+		}
+		out[key] = true
+	}
+	if len(out) == 0 {
+		logf("  방향 필터: 유효한 방향이 없습니다\n")
+	}
+	return out, true
 }

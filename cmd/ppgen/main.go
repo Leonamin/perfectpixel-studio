@@ -27,21 +27,23 @@ import (
 
 // options는 CLI 플래그를 묶은 실행 옵션입니다.
 type options struct {
-	desc     string
-	style    string
-	states   string
-	percat   int
-	all      bool
-	dirset   string
-	out      string
-	provider string
-	key      string
-	model    string
-	attempts int
-	timeout  time.Duration
-	jsonOut  bool
-	quiet    bool
-	baseOnly bool
+	desc        string
+	style       string
+	states      string
+	percat      int
+	all         bool
+	dirset      string
+	out         string
+	provider    string
+	key         string
+	model       string
+	attempts    int
+	dirs        string
+	timeout     time.Duration
+	jsonOut     bool
+	quiet       bool
+	baseOnly    bool
+	debugStrips bool
 }
 
 func main() {
@@ -55,6 +57,7 @@ func main() {
 	flag.IntVar(&opt.percat, "percat", 0, "0보다 크면 카테고리당 N개 프리셋을 자동 선택 (states 무시)")
 	flag.BoolVar(&opt.all, "all", false, "전체 프리셋 생성 (states/percat 무시)")
 	flag.StringVar(&opt.dirset, "dirset", "", "8방향 세트를 추가 생성할 상태 이름 (선택)")
+	flag.StringVar(&opt.dirs, "dirs", "", "dirset 생성 방향 필터 CSV (예: east 또는 south,east; 비우면 전체)")
 	flag.StringVar(&opt.out, "out", "./perfectpixel-out", "출력 디렉토리")
 	flag.StringVar(&opt.provider, "provider", "", "프로바이더 강제 지정 (gemini|openrouter|fal|byteplus)")
 	flag.StringVar(&opt.key, "key", "", "API 키 강제 지정 (설정/환경변수보다 우선)")
@@ -64,6 +67,7 @@ func main() {
 	flag.BoolVar(&opt.jsonOut, "json", false, "사람이 읽는 로그 대신 결과 요약 JSON만 stdout에 출력")
 	flag.BoolVar(&opt.quiet, "quiet", false, "진행 로그 억제 (-json과 함께 쓰기 좋음)")
 	flag.BoolVar(&opt.baseOnly, "baseonly", false, "베이스 캐릭터(base.png)만 생성하고 상태/번들은 건너뜀")
+	flag.BoolVar(&opt.debugStrips, "debugstrips", false, "상태별 슬라이싱 전 raw/clean 필름스트립을 out/debug에 저장")
 	flag.Parse()
 
 	if *dump {
@@ -132,6 +136,9 @@ func selectStates(opt options) ([]sprite.PresetInfo, error) {
 			}
 		}
 		return out, nil
+	}
+	if strings.TrimSpace(opt.states) == "" && strings.TrimSpace(opt.dirset) != "" {
+		return nil, nil
 	}
 	var out []sprite.PresetInfo
 	var missing []string

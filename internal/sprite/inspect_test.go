@@ -95,3 +95,25 @@ func TestInspectFramesSizeOutlier(t *testing.T) {
 		t.Fatalf("크기 이상치 경고 누락: %v", res.Warnings)
 	}
 }
+
+func TestInspectFramesAspectOutlierIsError(t *testing.T) {
+	key := [3]uint8{255, 0, 255}
+	var frames []*image.NRGBA
+	for i := 0; i < 5; i++ {
+		f := image.NewNRGBA(image.Rect(0, 0, 128, 128))
+		fillRect(f, 35, 20, 95, 110, 40, 80, 200)
+		frames = append(frames, f)
+	}
+	sliver := image.NewNRGBA(image.Rect(0, 0, 128, 128))
+	fillRect(sliver, 58, 20, 70, 110, 40, 80, 200)
+	frames = append(frames, sliver)
+
+	res := InspectFrames(frames, key, nil)
+	if res.Ok() {
+		t.Fatal("세로 슬라이버 프레임을 오류로 감지하지 못함")
+	}
+	joined := strings.Join(res.Errors, " ")
+	if !strings.Contains(joined, "비정상적으로 좁습니다") && !strings.Contains(joined, "가로세로비") {
+		t.Fatalf("bbox/aspect 오류 메시지 누락: %v", res.Errors)
+	}
+}
