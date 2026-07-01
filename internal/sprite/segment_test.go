@@ -72,3 +72,22 @@ func TestChromaMatteYCbCr(t *testing.T) {
 		t.Fatalf("마젠타 배경이 남음: alpha=%d", out.Pix[ei+3])
 	}
 }
+
+func TestRemoveBackgroundDropsSmallDetachedNoise(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 96, 64))
+	for i := 0; i+3 < len(src.Pix); i += 4 {
+		src.Pix[i], src.Pix[i+1], src.Pix[i+2], src.Pix[i+3] = 255, 0, 255, 255
+	}
+	fillBox(src, 20, 16, 55, 51, 40, 200, 60)
+	fillBox(src, 80, 10, 82, 12, 40, 200, 60) // 3x3 stray blob
+
+	out := RemoveBackground(src)
+	body := out.PixOffset(32, 32)
+	if out.Pix[body+3] <= alphaThreshold {
+		t.Fatal("본문 컴포넌트가 제거됨")
+	}
+	noise := out.PixOffset(81, 11)
+	if out.Pix[noise+3] > alphaThreshold {
+		t.Fatalf("작은 분리 노이즈가 남음: alpha=%d", out.Pix[noise+3])
+	}
+}

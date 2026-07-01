@@ -3,6 +3,7 @@ package sprite
 import (
 	"image"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -99,5 +100,58 @@ func TestExtractSlotGuard(t *testing.T) {
 		if opaque != 3600 {
 			t.Fatalf("프레임 %d에 잔여물 병합 의심: opaque=%d", i+1, opaque)
 		}
+	}
+}
+
+func TestExtractRepairsNarrowSideFrameSplit(t *testing.T) {
+	strip := image.NewNRGBA(image.Rect(0, 0, 600, 120))
+	// 모든 포즈를 얇은 연결부로 이어 하나의 긴 run처럼 만들고, 4번째 슬롯 안에는
+	// 앞/뒤 다리가 별도 peak처럼 보이는 측면 걷기 형태를 만든다. 순수 peak 분할은
+	// 4번째 포즈를 세로 슬라이버로 쪼갤 수 있고, 슬롯 기반 복구는 한 슬롯으로 묶어야 한다.
+	fillBox(strip, 45, 72, 555, 74, 200, 100, 50) // 낮은 알파 질량 연결부
+	fillBox(strip, 25, 25, 64, 94, 200, 100, 50)
+	fillBox(strip, 125, 25, 164, 94, 200, 100, 50)
+	fillBox(strip, 225, 25, 264, 94, 200, 100, 50)
+	fillBox(strip, 316, 25, 326, 94, 200, 100, 50) // 잘못 분리되기 쉬운 앞다리 peak
+	fillBox(strip, 350, 25, 389, 94, 200, 100, 50)
+	fillBox(strip, 425, 25, 464, 94, 200, 100, 50)
+	fillBox(strip, 505, 25, 544, 94, 200, 100, 50)
+
+	res := ExtractFrames(strip, 6, 128, 128, 8)
+	if res.Found != 6 {
+		t.Fatalf("프레임 수 오류: %d (%v)", res.Found, res.Warnings)
+	}
+	repaired := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "슬롯 기준") {
+			repaired = true
+			break
+		}
+	}
+	if !repaired {
+		t.Fatalf("슬롯 기반 복구 경로가 실행되지 않음: warnings=%v", res.Warnings)
+	}
+	widths := make([]int, len(res.Frames))
+	for i, f := range res.Frames {
+		minX, maxX := f.Rect.Dx(), -1
+		for y := 0; y < f.Rect.Dy(); y++ {
+			for x := 0; x < f.Rect.Dx(); x++ {
+				if f.Pix[f.PixOffset(x, y)+3] <= alphaThreshold {
+					continue
+				}
+				if x < minX {
+					minX = x
+				}
+				if x > maxX {
+					maxX = x
+				}
+			}
+		}
+		if maxX >= minX {
+			widths[i] = maxX - minX + 1
+		}
+	}
+	if widths[3] < 35 {
+		t.Fatalf("4번째 프레임이 세로 슬라이버로 추출됨: widths=%v warnings=%v", widths, res.Warnings)
 	}
 }

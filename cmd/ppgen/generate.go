@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"perfectpixel/internal/gen"
@@ -122,7 +123,13 @@ func genState(ctx context.Context, p gen.Provider, opt options, style string,
 			continue
 		}
 		bgKey := sprite.DetectBackground(nimg)
+		if opt.debugStrips {
+			saveDebugStrip(opt.out, spec.Name, attempt, "raw", nimg)
+		}
 		clean := sprite.RemoveBackground(nimg)
+		if opt.debugStrips {
+			saveDebugStrip(opt.out, spec.Name, attempt, "clean", clean)
+		}
 		ext := sprite.ExtractFrames(clean, expected, 256, 256, 24)
 		insp := sprite.InspectFrames(ext.Frames, bgKey, baseN)
 		sprite.PixelPostProcess(ext.Frames, palette)
@@ -163,4 +170,15 @@ func genState(ctx context.Context, p gen.Provider, opt options, style string,
 		best.Contact = qm.Contact
 	}
 	return best
+}
+
+func saveDebugStrip(outDir, state string, attempt int, kind string, img image.Image) {
+	if img == nil {
+		return
+	}
+	dir := filepath.Join(outDir, "debug", state)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	savePNG(filepath.Join(dir, fmt.Sprintf("attempt-%02d-%s.png", attempt, kind)), img)
 }

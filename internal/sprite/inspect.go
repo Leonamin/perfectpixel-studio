@@ -14,6 +14,9 @@ const (
 	inspectKeyMax          = 120  // 잔여 크로마 픽셀 허용 한도
 	inspectSmallRatio      = 0.35 // 중앙값 대비 이 비율 미만이면 비정상적으로 작은 프레임
 	inspectLargeRatio      = 2.75 // 중앙값 대비 이 비율 초과면 비정상적으로 큰 프레임
+	inspectNarrowRatio     = 0.45 // 중앙값 대비 이 비율 미만 폭이면 세로 슬라이버 의심
+	inspectAspectMinRatio  = 0.45 // 중앙값 대비 이 비율 미만 종횡비면 찌부러짐 의심
+	inspectTallEnoughRatio = 0.65 // 높이가 유지된 채 폭만 줄어든 경우를 자르기/찌부러짐으로 본다
 	inspectMinContentAbs   = 400  // 프레임당 최소 콘텐츠 픽셀(절대값)
 	inspectContentMinAlpha = 0.25 // 전체 프레임 대비 이 비율 미만 불투명이면 강한 공간 절약 가능
 	driftWarnSim           = 0.65 // 색 구성 유사도가 이 미만이면 캐릭터 drift 경고
@@ -45,6 +48,9 @@ func keyTinted(r, g, b uint8, key [3]uint8) bool {
 type FrameReport struct {
 	Index         int     `json:"index"`
 	ContentPixels int     `json:"contentPixels"`
+	ContentWidth  int     `json:"contentWidth"`
+	ContentHeight int     `json:"contentHeight"`
+	Aspect        float64 `json:"aspect"`
 	EdgePixels    int     `json:"edgePixels"`
 	KeyResidue    int     `json:"keyResidue"`
 	PaletteSim    float64 `json:"paletteSim"` // 다른 프레임 대비 색 구성 유사도 (0~1)
@@ -91,6 +97,9 @@ func InspectFrames(frames []*image.NRGBA, key [3]uint8, base *image.NRGBA) Inspe
 	}
 
 	areas := make([]int, 0, len(frames))
+	widths := make([]int, 0, len(frames))
+	heights := make([]int, 0, len(frames))
+	aspects := make([]int, 0, len(frames))
 	var opaqueTotal int
 	for _, f := range frames {
 		w, h := f.Rect.Dx(), f.Rect.Dy()
@@ -100,6 +109,7 @@ func InspectFrames(frames []*image.NRGBA, key [3]uint8, base *image.NRGBA) Inspe
 	for i, f := range frames {
 		rep := FrameReport{Index: i}
 		w, h := f.Rect.Dx(), f.Rect.Dy()
+		minX, minY, maxX, maxY := w, h, -1, -1
 
 		for y := 0; y < h; y++ {
 			for x := 0; x < w; x++ {
@@ -108,6 +118,18 @@ func InspectFrames(frames []*image.NRGBA, key [3]uint8, base *image.NRGBA) Inspe
 					continue
 				}
 				rep.ContentPixels++
+				if x < minX {
+					minX = x
+				}
+				if x > maxX {
+					maxX = x
+				}
+				if y < minY {
+					minY = y
+				}
+				if y > maxY {
+					maxY = y
+				}
 				if x < inspectEdgeMargin || x >= w-inspectEdgeMargin ||
 					y < inspectEdgeMargin || y >= h-inspectEdgeMargin {
 					rep.EdgePixels++
@@ -117,6 +139,14 @@ func InspectFrames(frames []*image.NRGBA, key [3]uint8, base *image.NRGBA) Inspe
 					rep.KeyResidue++
 				}
 			}
+		}
+		if maxX >= minX && maxY >= minY {
+			rep.ContentWidth = maxX - minX + 1
+			rep.ContentHeight = maxY - minY + 1
+			rep.Aspect = float64(rep.ContentWidth) / float64(rep.ContentHeight)
+			widths = append(widths, rep.ContentWidth)
+			heights = append(heights, rep.ContentHeight)
+			aspects = append(aspects, int(rep.Aspect*1000+0.5))
 		}
 
 		minContent := inspectMinContentAbs
@@ -165,6 +195,33 @@ func InspectFrames(frames []*image.NRGBA, key [3]uint8, base *image.NRGBA) Inspe
 					res.Warnings = append(res.Warnings,
 						fmt.Sprintf("프레임 %d이(가) 다른 프레임보다 비정상적으로 큽니다 (포즈가 병합되었을 수 있음)", i+1))
 					addHint("Each pose must be completely separate with clear magenta gaps between poses; poses must never touch, overlap, or merge.")
+				}
+			}
+		}
+	}
+	if len(widths) >= 3 && len(widths) == len(res.Reports) {
+		sortedW := append([]int(nil), widths...)
+		sortedH := append([]int(nil), heights...)
+		sortedA := append([]int(nil), aspects...)
+		sort.Ints(sortedW)
+		sort.Ints(sortedH)
+		sort.Ints(sortedA)
+		medianW := sortedW[len(sortedW)/2]
+		medianH := sortedH[len(sortedH)/2]
+		medianA := sortedA[len(sortedA)/2]
+		if medianW > 0 && medianH > 0 && medianA > 0 {
+			for i, rep := range res.Reports {
+				widthRatio := float64(rep.ContentWidth) / float64(medianW)
+				heightRatio := float64(rep.ContentHeight) / float64(medianH)
+				aspectRatio := float64(aspects[i]) / float64(medianA)
+				if widthRatio < inspectNarrowRatio && heightRatio >= inspectTallEnoughRatio {
+					res.Errors = append(res.Errors,
+						fmt.Sprintf("프레임 %d의 콘텐츠 폭이 다른 프레임보다 비정상적으로 좁습니다 (잘림/찌부러짐 의심)", i+1))
+					addHint("CRITICAL: every pose must be a complete, unsquashed full-body character. Keep the whole silhouette inside its column with enough horizontal padding; do not crop any pose into a thin vertical slice.")
+				} else if aspectRatio < inspectAspectMinRatio && heightRatio >= inspectTallEnoughRatio {
+					res.Errors = append(res.Errors,
+						fmt.Sprintf("프레임 %d의 가로세로비가 다른 프레임과 크게 다릅니다 (찌부러짐 의심)", i+1))
+					addHint("CRITICAL: keep each frame's body proportions consistent. No frame may be horizontally compressed, vertically sliced, or partially erased.")
 				}
 			}
 		}

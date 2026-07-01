@@ -183,6 +183,7 @@ func RemoveBackground(src image.Image) *image.NRGBA {
 		}
 	}
 	cleanupAlpha(out)
+	removeSmallAlphaComponents(out)
 	return out
 }
 
@@ -343,6 +344,83 @@ func cleanupAlpha(img *image.NRGBA) {
 			} else if nb >= 7 { // 거의 둘러싸인 핀홀 → 채움
 				img.Pix[i+3] = 255
 			}
+		}
+	}
+}
+
+// removeSmallAlphaComponents는 매팅 뒤에 남은 작은 분리 blob을 제거합니다.
+// 여러 포즈가 한 스트립에 있으므로 최대 컴포넌트만 남기지는 않고, 명백히 작은
+// 섬만 지웁니다. 이렇게 하면 프레임 bbox를 부풀리는 stray 픽셀을 줄일 수 있습니다.
+func removeSmallAlphaComponents(img *image.NRGBA) {
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	if w == 0 || h == 0 {
+		return
+	}
+	visited := make([]bool, w*h)
+	type component struct {
+		pixels []int
+		area   int
+	}
+	var comps []component
+	maxArea := 0
+	stack := make([]int, 0, 256)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			p := y*w + x
+			if visited[p] || img.Pix[p*4+3] <= alphaThreshold {
+				continue
+			}
+			visited[p] = true
+			stack = append(stack[:0], p)
+			comp := component{}
+			for len(stack) > 0 {
+				q := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				comp.pixels = append(comp.pixels, q)
+				qx, qy := q%w, q/w
+				push := func(nx, ny int) {
+					if nx < 0 || ny < 0 || nx >= w || ny >= h {
+						return
+					}
+					np := ny*w + nx
+					if visited[np] || img.Pix[np*4+3] <= alphaThreshold {
+						return
+					}
+					visited[np] = true
+					stack = append(stack, np)
+				}
+				for dy := -1; dy <= 1; dy++ {
+					for dx := -1; dx <= 1; dx++ {
+						if dx == 0 && dy == 0 {
+							continue
+						}
+						push(qx+dx, qy+dy)
+					}
+				}
+			}
+			comp.area = len(comp.pixels)
+			if comp.area > maxArea {
+				maxArea = comp.area
+			}
+			comps = append(comps, comp)
+		}
+	}
+	if len(comps) <= 1 || maxArea == 0 {
+		return
+	}
+	minArea := maxArea / 250 // 0.4% of the largest body component.
+	if minArea < 48 {
+		minArea = 48
+	}
+	if minArea > 160 {
+		minArea = 160
+	}
+	for _, comp := range comps {
+		if comp.area >= minArea {
+			continue
+		}
+		for _, p := range comp.pixels {
+			img.Pix[p*4+3] = 0
 		}
 	}
 }
