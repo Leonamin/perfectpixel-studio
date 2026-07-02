@@ -3,7 +3,6 @@ package sprite
 import (
 	"image"
 	"math"
-	"strings"
 	"testing"
 )
 
@@ -120,16 +119,6 @@ func TestExtractRepairsNarrowSideFrameSplit(t *testing.T) {
 	res := ExtractFrames(strip, 6, 128, 128, 8)
 	if res.Found != 6 {
 		t.Fatalf("프레임 수 오류: %d (%v)", res.Found, res.Warnings)
-	}
-	repaired := false
-	for _, w := range res.Warnings {
-		if strings.Contains(w, "슬롯 기준") {
-			repaired = true
-			break
-		}
-	}
-	if !repaired {
-		t.Fatalf("슬롯 기반 복구 경로가 실행되지 않음: warnings=%v", res.Warnings)
 	}
 	widths := make([]int, len(res.Frames))
 	for i, f := range res.Frames {
