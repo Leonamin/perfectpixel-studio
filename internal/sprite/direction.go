@@ -109,7 +109,8 @@ func FacingPromptSection(key string) string {
 		"- Body orientation: " + d.body + ".\n" +
 		"- Visibility: " + d.visibility + ".\n" +
 		"- The attached reference image shows this character from the front; redraw the IDENTICAL character (same hair, outfit, colors, proportions) rotated to this view.\n" +
-		"- Every frame in the strip must use this exact same viewing angle. Never drift back toward a front view and never mirror the character between frames.\n"
+		"- Every frame in the strip must use this exact same viewing angle. Never drift back toward a front view and never mirror the character between frames.\n" +
+		"- Before finalizing, audit the whole strip: if any pose reads as a different camera angle or facing direction than the others, redraw that pose so the view lock is consistent.\n"
 }
 
 // MirrorNRGBA는 이미지를 좌우 반전한 새 이미지를 반환합니다 (8방향 미러 페어 생성용).

@@ -447,7 +447,7 @@ func (a *App) GenerateState(args GenerateStateArgs) (StateResult, error) {
 		extracted := sprite.ExtractFrames(clean, expected, cellSize, cellSize, margin)
 		// 프레임별 품질 검사는 양자화 전 원본 프레임에 수행 (양자화로 미세한
 		// 정체성 차이가 뭉개지면 drift 감지 민감도가 떨어짐)
-		insp := sprite.InspectFrames(extracted.Frames, bgKey, baseN)
+		insp := sprite.InspectFramesWithFacing(extracted.Frames, bgKey, baseN, args.State.Facing)
 		// 픽셀아트 스타일이면 공유 팔레트 양자화 + 픽셀 그리드 스냅으로 "진짜" 픽셀아트화
 		sprite.PixelPostProcess(extracted.Frames, sprite.PaletteSizeForStyle(args.StyleKey))
 		cand.Found = extracted.Found

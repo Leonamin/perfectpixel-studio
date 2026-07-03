@@ -124,7 +124,7 @@ func BuildStripPrompt(description, style string, spec StateSpec, feedback string
 
 	b.WriteString("BACKGROUND COLOR MANDATE (read this before drawing anything): fill the ENTIRE canvas — every pixel that is not part of a character pose — with solid pure magenta #FF00FF (R=255, G=0, B=255). Do not use white, gray, black, or any other color as the background. A non-magenta background makes automatic extraction impossible and will require a full redraw.\n\n")
 
-	fmt.Fprintf(&b, "Draw a single horizontal row of exactly %d game-sprite poses of one character for the \"%s\" animation, ordered left to right. This is raw sprite art, not a photo or a film — draw only the character poses on a flat background.\n\n", n, spec.Name)
+	fmt.Fprintf(&b, "Draw exactly %d game-sprite poses of one character for the \"%s\" animation, ordered left-to-right; if a grid is needed, continue the order on the next row. This is raw sprite art, not a photo or a film — draw only the character poses on a flat background.\n\n", n, spec.Name)
 
 	b.WriteString("Subject lock (top priority):\n")
 	b.WriteString("- The attached image is the canonical character. Match it exactly across every pose: face, hairstyle, build, outfit, accessories.\n")
@@ -160,10 +160,12 @@ func BuildStripPrompt(description, style string, spec StateSpec, feedback string
 		b.WriteString("It plays once: give it a clear start, peak, and settle.\n\n")
 	}
 
-	b.WriteString("Row layout:\n")
-	fmt.Fprintf(&b, "- Place exactly %d poses in one horizontal row, evenly spaced left to right — %d poses, no more and no fewer. Count them before finishing.\n", n, n)
+	b.WriteString("Layout:\n")
+	fmt.Fprintf(&b, "- Preferred layout: place exactly %d poses in one horizontal row, evenly spaced left to right — %d poses, no more and no fewer. Count them before finishing.\n", n, n)
+	b.WriteString("- If the character is too wide to keep every pose complete and readable in one row, use a clean grid layout instead, ordered left-to-right on the top row, then left-to-right on the next row. For 6 poses, use 2 rows x 3 columns; for 4 poses, use 2 rows x 2 columns. Still draw exactly the requested pose count.\n")
 	b.WriteString("- Every pose is the SAME size at one shared scale, each filling about 70-85% of the canvas height. No pose may be noticeably smaller, larger, or set further back than the others.\n")
 	b.WriteString("- Leave a generous band of the flat keying background between every pair of poses. The gap must be wide enough that a human can easily see each pose is separate — never touching, overlapping, or bridging.\n")
+	b.WriteString("- In a grid layout, every cell contains exactly one complete pose. Never stack two poses in one cell, never let a pose cross into another row or column, and never crop tails, weapons, ears, feet, or effects at a cell edge.\n")
 	b.WriteString("- Each pose is ONE whole, connected body. Never split a body into separate pieces, and never let two poses touch, overlap, or merge.\n")
 	b.WriteString("- Center each pose's torso horizontally in its share of the row; arms, legs and head move, but the torso stays put and no body part is cut off by the canvas edge.\n")
 	b.WriteString("- Keep all poses standing on one common ground line, unless the action leaves the ground (a jump).\n")
