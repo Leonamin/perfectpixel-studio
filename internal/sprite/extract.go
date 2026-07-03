@@ -111,22 +111,23 @@ func extractComponentContent(strip *image.NRGBA, comp alphaComponent, normalizeB
 	return frameContent{img: dst, minX: minX, cx: cx, bottom: bottom}
 }
 
-func gridFrameContents(strip *image.NRGBA, expected int) ([]frameContent, int, int, bool) {
+func gridFrameContents(strip *image.NRGBA, expected int) ([]frameContent, int, int, int, bool) {
 	if expected < 4 {
-		return nil, 0, 0, false
+		return nil, 0, 0, 0, false
 	}
 	comps := majorAlphaComponents(strip, 0.20)
-	if len(comps) != expected {
-		return nil, 0, 0, false
+	if len(comps) < expected {
+		return nil, 0, 0, 0, false
 	}
 	var best []alphaComponent
 	bestRows, bestCols := 0, 0
 	bestScore := 1e18
-	for rows := 2; rows <= expected; rows++ {
-		if expected%rows != 0 {
+	total := len(comps)
+	for rows := 2; rows <= total; rows++ {
+		if total%rows != 0 {
 			continue
 		}
-		cols := expected / rows
+		cols := total / rows
 		ordered, score, ok := fitGridComponents(comps, rows, cols)
 		if !ok {
 			continue
@@ -135,18 +136,18 @@ func gridFrameContents(strip *image.NRGBA, expected int) ([]frameContent, int, i
 			best, bestRows, bestCols, bestScore = ordered, rows, cols, score
 		}
 	}
-	if len(best) != expected {
-		return nil, 0, 0, false
+	if len(best) < expected {
+		return nil, 0, 0, 0, false
 	}
 	fcs := make([]frameContent, 0, expected)
-	for _, comp := range best {
+	for _, comp := range best[:expected] {
 		fc := extractComponentContent(strip, comp, true)
 		if fc.img == nil {
-			return nil, 0, 0, false
+			return nil, 0, 0, 0, false
 		}
 		fcs = append(fcs, fc)
 	}
-	return fcs, bestRows, bestCols, true
+	return fcs, bestRows, bestCols, total, true
 }
 
 func fitGridComponents(comps []alphaComponent, rows, cols int) ([]alphaComponent, float64, bool) {
@@ -241,11 +242,16 @@ func ExtractFrames(strip *image.NRGBA, expected, cellW, cellH, margin int) Extra
 
 	var fcs []frameContent
 	found := 0
-	if gridFcs, rows, cols, ok := gridFrameContents(strip, expected); ok {
+	if gridFcs, rows, cols, detected, ok := gridFrameContents(strip, expected); ok {
 		fcs = gridFcs
 		found = expected
-		res.Warnings = append(res.Warnings,
-			fmt.Sprintf("%d행 x %d열 그리드 레이아웃을 감지해 각 셀의 포즈를 재사용했습니다.", rows, cols))
+		if detected > expected {
+			res.Warnings = append(res.Warnings,
+				fmt.Sprintf("%d행 x %d열 그리드에서 %d개 포즈를 감지해 앞의 %d개를 재사용했습니다.", rows, cols, detected, expected))
+		} else {
+			res.Warnings = append(res.Warnings,
+				fmt.Sprintf("%d행 x %d열 그리드 레이아웃을 감지해 각 셀의 포즈를 재사용했습니다.", rows, cols))
+		}
 	} else {
 		segs, natural := segmentStrip(strip, expected)
 		if len(segs) == 0 {

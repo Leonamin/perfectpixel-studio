@@ -11,6 +11,7 @@ import (
 
 const hamsterWalkEastCleanFixture = "/home/leonamin/podong-assets/hamster-ew-baseseed/debug/walk-east/attempt-01-clean.png"
 const catWalkEastGridFixture = "/home/leonamin/dev/podong-podong/scratchpad/cat-full/debug/walk-east/attempt-01-clean.png"
+const catWalkSouthEastOverGridFixture = "/home/leonamin/dev/podong-podong/scratchpad/cat-full/debug/walk-south-east/attempt-01-clean.png"
 
 func loadNRGBAFixture(t *testing.T, path string) *image.NRGBA {
 	t.Helper()
@@ -135,6 +136,44 @@ func TestExtractGridLayout4x1(t *testing.T) {
 	}
 }
 
+func TestExtractOverGeneratedGridLayoutReusesExpectedCount(t *testing.T) {
+	strip := image.NewNRGBA(image.Rect(0, 0, 460, 220))
+	colors := [][3]uint8{
+		{210, 30, 30},
+		{30, 180, 30},
+		{40, 80, 210},
+		{220, 170, 30},
+		{30, 180, 190},
+		{180, 80, 210},
+		{230, 120, 160},
+		{120, 120, 120},
+	}
+	i := 0
+	for row := 0; row < 2; row++ {
+		for col := 0; col < 4; col++ {
+			x0 := 22 + col*110
+			y0 := 24 + row*100
+			c := colors[i]
+			fillBox(strip, x0, y0, x0+49, y0+49, c[0], c[1], c[2])
+			i++
+		}
+	}
+
+	res := ExtractFrames(strip, 6, 80, 80, 8)
+	if res.Found != 6 || len(res.Frames) != 6 {
+		t.Fatalf("over-generated grid should reuse expected count: found=%d frames=%d warnings=%v", res.Found, len(res.Frames), res.Warnings)
+	}
+	if !hasWarningContaining(res.Warnings, "2행 x 4열") || !hasWarningContaining(res.Warnings, "8개 포즈") {
+		t.Fatalf("over-generated grid warning missing: %v", res.Warnings)
+	}
+	for i, want := range colors[:6] {
+		got := firstOpaqueRGB(t, res.Frames[i])
+		if got != want {
+			t.Fatalf("frame order/color mismatch at %d: got=%v want=%v", i, got, want)
+		}
+	}
+}
+
 func TestExtractHamsterWalkEastCleanFixtureReportsMissingPose(t *testing.T) {
 	fixture := hamsterWalkEastCleanFixture
 	if override := os.Getenv("PPGEN_HAMSTER_WALK_EAST_CLEAN"); override != "" {
@@ -182,6 +221,31 @@ func TestExtractCatWalkEastGridFixture(t *testing.T) {
 	}
 	if !hasWarningContaining(res.Warnings, "2행 x 3열") {
 		t.Fatalf("cat grid fixture did not use grid extraction: warnings=%v", res.Warnings)
+	}
+	for i, f := range res.Frames {
+		if comps := majorAlphaComponents(f, 0.20); len(comps) != 1 {
+			t.Fatalf("frame %d should contain one major component, got %d", i+1, len(comps))
+		}
+	}
+}
+
+func TestExtractCatWalkSouthEastOverGridFixture(t *testing.T) {
+	fixture := catWalkSouthEastOverGridFixture
+	if override := os.Getenv("PPGEN_CAT_WALK_SOUTH_EAST_GRID"); override != "" {
+		fixture = override
+	}
+	fixture, _ = filepath.Abs(fixture)
+	strip := loadNRGBAFixture(t, fixture)
+
+	res := ExtractFrames(strip, 6, 256, 256, 24)
+	if res.Found != 6 {
+		t.Fatalf("cat over-grid fixture should be reusable as 6 poses: found=%d warnings=%v", res.Found, res.Warnings)
+	}
+	if len(res.Frames) != 6 {
+		t.Fatalf("cat over-grid fixture emitted %d frames", len(res.Frames))
+	}
+	if !hasWarningContaining(res.Warnings, "2행 x 4열") || !hasWarningContaining(res.Warnings, "8개 포즈") {
+		t.Fatalf("cat over-grid fixture did not use over-grid extraction: warnings=%v", res.Warnings)
 	}
 	for i, f := range res.Frames {
 		if comps := majorAlphaComponents(f, 0.20); len(comps) != 1 {
