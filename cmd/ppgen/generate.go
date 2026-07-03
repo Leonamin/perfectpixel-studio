@@ -182,7 +182,7 @@ func genState(ctx context.Context, p gen.Provider, opt options, style string,
 			saveDebugStrip(opt.out, spec.Name, attempt, "clean", clean)
 		}
 		ext := sprite.ExtractFrames(clean, expected, 256, 256, 24)
-		insp := sprite.InspectFrames(ext.Frames, bgKey, baseN)
+		insp := sprite.InspectFramesWithFacing(ext.Frames, bgKey, baseN, spec.Facing)
 		sprite.PixelPostProcess(ext.Frames, palette)
 
 		cand := stateResult{

@@ -99,7 +99,7 @@ func genStrip(ctx context.Context, p gen.Provider, desc, styleKey, style string,
 		bgKey := sprite.DetectBackground(nimg)
 		clean := sprite.RemoveBackground(nimg)
 		ext := sprite.ExtractFrames(clean, expected, 256, 256, 24)
-		insp := sprite.InspectFrames(ext.Frames, bgKey, baseN)
+		insp := sprite.InspectFramesWithFacing(ext.Frames, bgKey, baseN, spec.Facing)
 		sprite.PixelPostProcess(ext.Frames, palette)
 
 		cand := stripResult{

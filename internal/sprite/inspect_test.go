@@ -1,7 +1,10 @@
 package sprite
 
 import (
+	"fmt"
 	"image"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -116,4 +119,131 @@ func TestInspectFramesAspectOutlierIsError(t *testing.T) {
 	if !strings.Contains(joined, "비정상적으로 좁습니다") && !strings.Contains(joined, "가로세로비") {
 		t.Fatalf("bbox/aspect 오류 메시지 누락: %v", res.Errors)
 	}
+}
+
+func TestInspectFramesWithFacingConsistentView(t *testing.T) {
+	key := [3]uint8{255, 0, 255}
+	frames := []*image.NRGBA{
+		makeSideViewFrame(0),
+		makeSideViewFrame(4),
+		makeSideViewFrame(-3),
+		makeSideViewFrame(2),
+		makeSideViewFrame(-2),
+		makeSideViewFrame(3),
+	}
+
+	res := InspectFramesWithFacing(frames, key, nil, "east")
+	for _, err := range res.Errors {
+		if strings.Contains(err, "시점/방향") {
+			t.Fatalf("consistent facing was flagged as view drift: errors=%v warnings=%v", res.Errors, res.Warnings)
+		}
+	}
+}
+
+func TestInspectFramesWithFacingDetectsViewDrift(t *testing.T) {
+	key := [3]uint8{255, 0, 255}
+	frames := []*image.NRGBA{
+		makeSideViewFrame(0),
+		makeSideViewFrame(4),
+		makeFrontViewFrame(),
+		makeSideViewFrame(2),
+		makeSideViewFrame(-2),
+		makeSideViewFrame(3),
+	}
+
+	res := InspectFramesWithFacing(frames, key, nil, "north-east")
+	found := false
+	for _, err := range res.Errors {
+		if strings.Contains(err, "프레임 3") && strings.Contains(err, "시점/방향") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("view drift was not detected: errors=%v warnings=%v", res.Errors, res.Warnings)
+	}
+	hintFound := false
+	for _, hint := range res.RetryHints {
+		if strings.Contains(hint, "VIEW LOCK") && strings.Contains(hint, "three-quarter back-right") {
+			hintFound = true
+		}
+	}
+	if !hintFound {
+		t.Fatalf("view-lock retry hint missing: %v", res.RetryHints)
+	}
+}
+
+func TestInspectCatNorthEastFacingFixtureReportsViewDrift(t *testing.T) {
+	dir := "/home/leonamin/dev/podong-podong/scratchpad/cat-full/frames/walk-north-east"
+	frames := make([]*image.NRGBA, 0, 6)
+	for i := 0; i < 6; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("frame-%02d.png", i))
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				t.Skipf("fixture not found: %s", path)
+			}
+			t.Fatalf("fixture stat failed: %v", err)
+		}
+		frames = append(frames, loadNRGBAFixture(t, path))
+	}
+
+	res := InspectFramesWithFacing(frames, [3]uint8{255, 0, 255}, nil, "north-east")
+	found := false
+	for _, msg := range append(append([]string{}, res.Errors...), res.Warnings...) {
+		if strings.Contains(msg, "시점/방향") || strings.Contains(msg, "얼굴/눈") {
+			found = true
+		}
+	}
+	if !found {
+		ref := viewReferenceSignature(viewSignaturesForTest(frames))
+		t.Fatalf("cat north-east fixture should report view drift: errors=%v warnings=%v detail=%v ref=%d sims=%v",
+			res.Errors, res.Warnings, detailScoresForTest(frames), ref, viewSimsForTest(frames, ref))
+	}
+}
+
+func makeSideViewFrame(step int) *image.NRGBA {
+	f := image.NewNRGBA(image.Rect(0, 0, 128, 128))
+	fillRect(f, 27, 58, 89, 84, 50, 90, 150)  // torso
+	fillRect(f, 82, 42, 112, 68, 50, 90, 150) // head facing right
+	fillRect(f, 17, 66, 29, 75, 50, 90, 150)  // tail base
+	fillRect(f, 10, 70, 19, 79, 50, 90, 150)  // tail tip
+	fillRect(f, 37+step, 82, 49+step, 111, 50, 90, 150)
+	fillRect(f, 67-step, 82, 79-step, 111, 50, 90, 150)
+	return f
+}
+
+func makeFrontViewFrame() *image.NRGBA {
+	f := image.NewNRGBA(image.Rect(0, 0, 128, 128))
+	fillRect(f, 49, 50, 79, 92, 50, 90, 150)  // upright torso
+	fillRect(f, 43, 25, 85, 58, 50, 90, 150)  // centered head
+	fillRect(f, 35, 92, 51, 113, 50, 90, 150) // left leg
+	fillRect(f, 77, 92, 93, 113, 50, 90, 150) // right leg
+	return f
+}
+
+func detailScoresForTest(frames []*image.NRGBA) []float64 {
+	out := make([]float64, len(frames))
+	for i, f := range frames {
+		out[i] = upperSaturatedDetailRatio(f)
+	}
+	return out
+}
+
+func viewSignaturesForTest(frames []*image.NRGBA) []viewSignature {
+	out := make([]viewSignature, len(frames))
+	for i, f := range frames {
+		out[i] = frameViewSignature(f)
+	}
+	return out
+}
+
+func viewSimsForTest(frames []*image.NRGBA, ref int) []float64 {
+	sigs := viewSignaturesForTest(frames)
+	out := make([]float64, len(frames))
+	if ref < 0 {
+		return out
+	}
+	for i, sig := range sigs {
+		out[i] = viewSignatureSimilarity(sig, sigs[ref])
+	}
+	return out
 }
