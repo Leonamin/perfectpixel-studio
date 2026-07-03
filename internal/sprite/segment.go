@@ -10,6 +10,17 @@ import "image"
 // colSpan은 스트립 좌표계의 컬럼 구간 [start, end)입니다.
 type colSpan struct{ start, end int }
 
+type alphaComponent struct {
+	minX, minY int
+	maxX, maxY int
+	area       int
+}
+
+func (c alphaComponent) width() int  { return c.maxX - c.minX + 1 }
+func (c alphaComponent) height() int { return c.maxY - c.minY + 1 }
+func (c alphaComponent) cx() float64 { return float64(c.minX+c.maxX+1) / 2 }
+func (c alphaComponent) cy() float64 { return float64(c.minY+c.maxY+1) / 2 }
+
 // projectAlpha는 컬럼별 알파 질량 P[x] = Σ_y α(x,y) 를 계산합니다.
 func projectAlpha(img *image.NRGBA) []float64 {
 	w, h := img.Rect.Dx(), img.Rect.Dy()
@@ -53,6 +64,111 @@ func maxOf(p []float64) float64 {
 		}
 	}
 	return m
+}
+
+func alphaComponents(img *image.NRGBA) []alphaComponent {
+	w, h := img.Rect.Dx(), img.Rect.Dy()
+	if w == 0 || h == 0 {
+		return nil
+	}
+	visited := make([]bool, w*h)
+	comps := []alphaComponent{}
+	stack := make([]int, 0, 256)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			p := y*w + x
+			if visited[p] || img.Pix[p*4+3] <= alphaThreshold {
+				continue
+			}
+			visited[p] = true
+			stack = append(stack[:0], p)
+			comp := alphaComponent{minX: x, minY: y, maxX: x, maxY: y}
+			for len(stack) > 0 {
+				q := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				comp.area++
+				qx, qy := q%w, q/w
+				if qx < comp.minX {
+					comp.minX = qx
+				}
+				if qx > comp.maxX {
+					comp.maxX = qx
+				}
+				if qy < comp.minY {
+					comp.minY = qy
+				}
+				if qy > comp.maxY {
+					comp.maxY = qy
+				}
+				push := func(nx, ny int) {
+					if nx < 0 || ny < 0 || nx >= w || ny >= h {
+						return
+					}
+					np := ny*w + nx
+					if visited[np] || img.Pix[np*4+3] <= alphaThreshold {
+						return
+					}
+					visited[np] = true
+					stack = append(stack, np)
+				}
+				for dy := -1; dy <= 1; dy++ {
+					for dx := -1; dx <= 1; dx++ {
+						if dx == 0 && dy == 0 {
+							continue
+						}
+						push(qx+dx, qy+dy)
+					}
+				}
+			}
+			comps = append(comps, comp)
+		}
+	}
+	return comps
+}
+
+func majorAlphaComponents(img *image.NRGBA, frac float64) []alphaComponent {
+	comps := alphaComponents(img)
+	if len(comps) == 0 {
+		return nil
+	}
+	maxArea := 0
+	for _, c := range comps {
+		if c.area > maxArea {
+			maxArea = c.area
+		}
+	}
+	if maxArea == 0 {
+		return nil
+	}
+	minArea := int(float64(maxArea) * frac)
+	if minArea < 48 {
+		minArea = 48
+	}
+	out := []alphaComponent{}
+	for _, c := range comps {
+		if c.area >= minArea && c.width() >= 4 && c.height() >= 4 {
+			out = append(out, c)
+		}
+	}
+	sortAlphaComponentsX(out)
+	return out
+}
+
+func sortAlphaComponentsX(comps []alphaComponent) {
+	for i := 1; i < len(comps); i++ {
+		for j := i; j > 0 && comps[j-1].minX > comps[j].minX; j-- {
+			comps[j-1], comps[j] = comps[j], comps[j-1]
+		}
+	}
+}
+
+func sortAlphaComponentsY(comps []alphaComponent) {
+	for i := 1; i < len(comps); i++ {
+		for j := i; j > 0 && (comps[j-1].minY > comps[j].minY ||
+			(comps[j-1].minY == comps[j].minY && comps[j-1].minX > comps[j].minX)); j-- {
+			comps[j-1], comps[j] = comps[j], comps[j-1]
+		}
+	}
 }
 
 // contentRuns는 P가 eps를 넘는 연속 구간(포즈)을 찾습니다.
@@ -195,83 +311,40 @@ func dpNCutFiltered(p []float64, x0, x1, n int, accept func(int) bool) []int {
 // majorAlphaComponentSpans는 큰 연결요소의 x 범위를 반환합니다.
 // 포즈가 서로 분리되어 있으면 projection valley보다 더 직접적인 근거가 됩니다.
 func majorAlphaComponentSpans(img *image.NRGBA, frac float64) []colSpan {
-	w, h := img.Rect.Dx(), img.Rect.Dy()
-	if w == 0 || h == 0 {
+	comps := majorAlphaComponents(img, frac)
+	if len(comps) == 0 || !componentsAreSingleRow(comps) {
 		return nil
-	}
-	visited := make([]bool, w*h)
-	type component struct {
-		span colSpan
-		area int
-	}
-	comps := []component{}
-	maxArea := 0
-	stack := make([]int, 0, 256)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			p := y*w + x
-			if visited[p] || img.Pix[p*4+3] <= alphaThreshold {
-				continue
-			}
-			visited[p] = true
-			stack = append(stack[:0], p)
-			minX, maxX, area := x, x, 0
-			for len(stack) > 0 {
-				q := stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-				area++
-				qx, qy := q%w, q/w
-				if qx < minX {
-					minX = qx
-				}
-				if qx > maxX {
-					maxX = qx
-				}
-				push := func(nx, ny int) {
-					if nx < 0 || ny < 0 || nx >= w || ny >= h {
-						return
-					}
-					np := ny*w + nx
-					if visited[np] || img.Pix[np*4+3] <= alphaThreshold {
-						return
-					}
-					visited[np] = true
-					stack = append(stack, np)
-				}
-				for dy := -1; dy <= 1; dy++ {
-					for dx := -1; dx <= 1; dx++ {
-						if dx == 0 && dy == 0 {
-							continue
-						}
-						push(qx+dx, qy+dy)
-					}
-				}
-			}
-			if area > maxArea {
-				maxArea = area
-			}
-			comps = append(comps, component{span: colSpan{minX, maxX + 1}, area: area})
-		}
-	}
-	if maxArea == 0 {
-		return nil
-	}
-	minArea := int(float64(maxArea) * frac)
-	if minArea < 48 {
-		minArea = 48
 	}
 	out := []colSpan{}
 	for _, c := range comps {
-		if c.area >= minArea && c.span.end-c.span.start >= 4 {
-			out = append(out, c.span)
-		}
-	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j-1].start > out[j].start; j-- {
-			out[j-1], out[j] = out[j], out[j-1]
-		}
+		out = append(out, colSpan{c.minX, c.maxX + 1})
 	}
 	return out
+}
+
+func componentsAreSingleRow(comps []alphaComponent) bool {
+	if len(comps) <= 1 {
+		return true
+	}
+	heights := make([]int, 0, len(comps))
+	for _, c := range comps {
+		heights = append(heights, c.height())
+	}
+	medH := medianInt(heights)
+	if medH <= 0 {
+		return true
+	}
+	minCY, maxCY := comps[0].cy(), comps[0].cy()
+	for _, c := range comps[1:] {
+		cy := c.cy()
+		if cy < minCY {
+			minCY = cy
+		}
+		if cy > maxCY {
+			maxCY = cy
+		}
+	}
+	return maxCY-minCY <= float64(medH)*0.45
 }
 
 func valleyCutOK(p []float64, s, e, x int) bool {

@@ -79,28 +79,191 @@ func extractContents(strip *image.NRGBA, segs []colSpan, h int) []frameContent {
 	return fcs
 }
 
+func extractComponentContent(strip *image.NRGBA, comp alphaComponent, normalizeBottom bool) frameContent {
+	minX, minY, maxX, maxY := comp.minX, comp.minY, comp.maxX, comp.maxY
+	gw, gh := maxX-minX+1, maxY-minY+1
+	if gw <= 0 || gh <= 0 {
+		return frameContent{}
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, gw, gh))
+	var sumWX, sumW float64
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			si := strip.PixOffset(x, y)
+			a := strip.Pix[si+3]
+			if a <= alphaThreshold {
+				continue
+			}
+			di := dst.PixOffset(x-minX, y-minY)
+			copy(dst.Pix[di:di+4], strip.Pix[si:si+4])
+			sumWX += float64(x) * float64(a)
+			sumW += float64(a)
+		}
+	}
+	cx := float64(minX+maxX+1) / 2
+	if sumW > 0 {
+		cx = sumWX / sumW
+	}
+	bottom := maxY
+	if normalizeBottom {
+		bottom = 0
+	}
+	return frameContent{img: dst, minX: minX, cx: cx, bottom: bottom}
+}
+
+func gridFrameContents(strip *image.NRGBA, expected int) ([]frameContent, int, int, bool) {
+	if expected < 4 {
+		return nil, 0, 0, false
+	}
+	comps := majorAlphaComponents(strip, 0.20)
+	if len(comps) != expected {
+		return nil, 0, 0, false
+	}
+	var best []alphaComponent
+	bestRows, bestCols := 0, 0
+	bestScore := 1e18
+	for rows := 2; rows <= expected; rows++ {
+		if expected%rows != 0 {
+			continue
+		}
+		cols := expected / rows
+		ordered, score, ok := fitGridComponents(comps, rows, cols)
+		if !ok {
+			continue
+		}
+		if score < bestScore {
+			best, bestRows, bestCols, bestScore = ordered, rows, cols, score
+		}
+	}
+	if len(best) != expected {
+		return nil, 0, 0, false
+	}
+	fcs := make([]frameContent, 0, expected)
+	for _, comp := range best {
+		fc := extractComponentContent(strip, comp, true)
+		if fc.img == nil {
+			return nil, 0, 0, false
+		}
+		fcs = append(fcs, fc)
+	}
+	return fcs, bestRows, bestCols, true
+}
+
+func fitGridComponents(comps []alphaComponent, rows, cols int) ([]alphaComponent, float64, bool) {
+	if rows < 2 || cols < 1 || len(comps) != rows*cols {
+		return nil, 0, false
+	}
+	widths := make([]int, 0, len(comps))
+	heights := make([]int, 0, len(comps))
+	for _, c := range comps {
+		widths = append(widths, c.width())
+		heights = append(heights, c.height())
+	}
+	medW := medianInt(widths)
+	medH := medianInt(heights)
+	if medW <= 0 || medH <= 0 {
+		return nil, 0, false
+	}
+
+	sorted := append([]alphaComponent(nil), comps...)
+	sortAlphaComponentsY(sorted)
+	ordered := make([]alphaComponent, 0, len(comps))
+	rowCenters := make([]float64, 0, rows)
+	rowMaxY := make([]int, 0, rows)
+	score := float64(rows) * 0.01
+	for r := 0; r < rows; r++ {
+		group := append([]alphaComponent(nil), sorted[r*cols:(r+1)*cols]...)
+		sortAlphaComponentsX(group)
+		minCY, maxCY, sumCY := group[0].cy(), group[0].cy(), 0.0
+		minY, maxY := group[0].minY, group[0].maxY
+		for _, c := range group {
+			cy := c.cy()
+			if cy < minCY {
+				minCY = cy
+			}
+			if cy > maxCY {
+				maxCY = cy
+			}
+			if c.minY < minY {
+				minY = c.minY
+			}
+			if c.maxY > maxY {
+				maxY = c.maxY
+			}
+			sumCY += cy
+		}
+		if cols > 1 && maxCY-minCY > float64(medH)*0.55 {
+			return nil, 0, false
+		}
+		for c := 1; c < cols; c++ {
+			if group[c].cx()-group[c-1].cx() < float64(medW)*0.55 {
+				return nil, 0, false
+			}
+		}
+		rowCenter := sumCY / float64(cols)
+		if r > 0 {
+			centerGap := rowCenter - rowCenters[r-1]
+			edgeGap := minY - rowMaxY[r-1]
+			if centerGap < float64(medH)*0.50 || edgeGap < 4 {
+				return nil, 0, false
+			}
+		}
+		score += (maxCY - minCY) / float64(medH)
+		rowCenters = append(rowCenters, rowCenter)
+		rowMaxY = append(rowMaxY, maxY)
+		ordered = append(ordered, group...)
+	}
+
+	if cols > 1 && rows > 1 {
+		for c := 0; c < cols; c++ {
+			centers := make([]int, 0, rows)
+			for r := 0; r < rows; r++ {
+				centers = append(centers, int(ordered[r*cols+c].cx()+0.5))
+			}
+			medCX := medianInt(centers)
+			for _, cx := range centers {
+				score += relDev(float64(cx), float64(medCX)) * 0.2
+				if absInt(cx-medCX) > medW {
+					return nil, 0, false
+				}
+			}
+		}
+	}
+	return ordered, score, true
+}
+
 // ExtractFrames는 투명 배경 스트립에서 포즈를 투영 분할로 검출해 셀 크기 프레임으로
 // 만듭니다. 모든 프레임에 공통 스케일을 적용하고, 질량 중심으로 수평 정렬하며,
 // 공통 베이스라인 기준으로 수직 오프셋(점프 호 등)을 보존합니다.
 func ExtractFrames(strip *image.NRGBA, expected, cellW, cellH, margin int) ExtractResult {
 	res := ExtractResult{Expected: expected}
-	segs, natural := segmentStrip(strip, expected)
-	if len(segs) == 0 {
-		res.Warnings = append(res.Warnings, "이미지에서 캐릭터를 찾지 못했습니다. 다시 생성해 주세요.")
-		return res
-	}
 	h := strip.Rect.Dy()
 
-	fcs := extractContents(strip, segs, h)
-	found := natural
-	if expected > 1 && len(fcs) == expected && hasContentShapeOutlier(fcs) {
-		slotSegs := slotGuidedSegments(strip, expected)
-		slotFcs := extractContents(strip, slotSegs, h)
-		if len(slotFcs) == expected && contentShapeScore(slotFcs)+0.15 < contentShapeScore(fcs) {
-			fcs = slotFcs
-			found = expected
-			res.Warnings = append(res.Warnings,
-				"프레임 폭 이상치를 감지해 균등 슬롯 기준으로 스트립 분할을 보정했습니다.")
+	var fcs []frameContent
+	found := 0
+	if gridFcs, rows, cols, ok := gridFrameContents(strip, expected); ok {
+		fcs = gridFcs
+		found = expected
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("%d행 x %d열 그리드 레이아웃을 감지해 각 셀의 포즈를 재사용했습니다.", rows, cols))
+	} else {
+		segs, natural := segmentStrip(strip, expected)
+		if len(segs) == 0 {
+			res.Warnings = append(res.Warnings, "이미지에서 캐릭터를 찾지 못했습니다. 다시 생성해 주세요.")
+			return res
+		}
+
+		fcs = extractContents(strip, segs, h)
+		found = natural
+		if expected > 1 && len(fcs) == expected && hasContentShapeOutlier(fcs) {
+			slotSegs := slotGuidedSegments(strip, expected)
+			slotFcs := extractContents(strip, slotSegs, h)
+			if len(slotFcs) == expected && contentShapeScore(slotFcs)+0.15 < contentShapeScore(fcs) {
+				fcs = slotFcs
+				found = expected
+				res.Warnings = append(res.Warnings,
+					"프레임 폭 이상치를 감지해 균등 슬롯 기준으로 스트립 분할을 보정했습니다.")
+			}
 		}
 	}
 	if len(fcs) == 0 {
